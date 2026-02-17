@@ -328,7 +328,22 @@ export default function BookmarkList({
                         <div className="flex items-center gap-2 text-[10px] font-bold text-foreground/30 uppercase tracking-widest">
                             <span>{bookmarks.length} Curated Items</span>
                             <span className="w-1 h-1 bg-border rounded-full" />
-                            <span>Recently Added</span>
+                            <span>
+                                {bookmarks.length > 0 ? (
+                                    (() => {
+                                        const latest = new Date(Math.max(...bookmarks.map(b => new Date(b.created_at).getTime())))
+                                        const now = new Date()
+                                        const diff = now.getTime() - latest.getTime()
+                                        const hours = diff / (1000 * 60 * 60)
+                                        
+                                        if (hours < 1) return 'Just Updated'
+                                        if (hours < 24) return 'Updated Today'
+                                        return 'All Items Synced'
+                                    })()
+                                ) : (
+                                    'Empty Collection'
+                                )}
+                            </span>
                         </div>
                     </div>
                 </div>
