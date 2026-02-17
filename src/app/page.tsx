@@ -8,123 +8,76 @@ export default async function Home() {
   } = await supabase.auth.getUser()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center px-4">
-      <div className="max-w-4xl w-full text-center space-y-8">
-        {/* Logo and Title */}
-        <div className="space-y-4">
-          <div className="flex justify-center">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-3xl flex items-center justify-center shadow-2xl">
-              <svg
-                className="w-10 h-10 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                />
+    <div className="min-h-screen bg-background text-foreground selection:bg-accent selection:text-white px-6 overflow-x-hidden">
+      <div className="max-w-6xl mx-auto py-24 sm:py-32">
+        {/* Navigation / Header Area */}
+        <div className="flex items-center justify-between mb-24 animate-in fade-in slide-in-from-top-4 duration-1000">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white border border-border rounded-xl flex items-center justify-center shadow-sm">
+              <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
               </svg>
             </div>
+            <span className="text-xl font-semibold tracking-tight">Smart Bookmarks</span>
           </div>
-          <h1 className="text-5xl md:text-6xl font-bold text-gray-900">
-            Smart Bookmark
-          </h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Save, organize, and access your favorite links instantly.
-            Real-time sync across all your devices.
-          </p>
-        </div>
-
-        {/* Features */}
-        <div className="grid md:grid-cols-3 gap-6 mt-12">
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-              <svg
-                className="w-6 h-6 text-blue-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-            </div>
-            <h3 className="font-semibold text-gray-900 mb-2">
-              Real-time Sync
-            </h3>
-            <p className="text-sm text-gray-600">
-              Your bookmarks update instantly across all tabs and devices
-            </p>
-          </div>
-
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg">
-            <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-              <svg
-                className="w-6 h-6 text-purple-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                />
-              </svg>
-            </div>
-            <h3 className="font-semibold text-gray-900 mb-2">
-              Private & Secure
-            </h3>
-            <p className="text-sm text-gray-600">
-              Your bookmarks are completely private and only visible to you
-            </p>
-          </div>
-
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg">
-            <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-              <svg
-                className="w-6 h-6 text-indigo-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-                />
-              </svg>
-            </div>
-            <h3 className="font-semibold text-gray-900 mb-2">Simple & Fast</h3>
-            <p className="text-sm text-gray-600">
-              Add and manage bookmarks with just a few clicks
-            </p>
-          </div>
-        </div>
-
-        {/* CTA */}
-        <div className="pt-8">
           <Link
             href={user ? '/dashboard' : '/login'}
-            className="inline-block px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            className="text-sm font-bold uppercase tracking-widest text-foreground hover:text-accent transition-smooth border-b border-transparent hover:border-accent"
           >
-            {user ? 'Go to Dashboard →' : 'Get Started with Google →'}
+            {user ? 'Dashboard' : 'Sign In'}
           </Link>
         </div>
 
+        {/* Hero Section */}
+        <div className="max-w-3xl space-y-10 mb-32">
+          <h1 className="text-6xl sm:text-7xl font-light tracking-tighter leading-[1.1] animate-in fade-in slide-in-from-left-8 duration-700 delay-100">
+            A sanctuary for your <span className="font-semibold text-accent">digital discoveries.</span>
+          </h1>
+          <p className="text-xl text-foreground/50 font-medium leading-relaxed max-w-2xl animate-in fade-in slide-in-from-left-8 duration-700 delay-200">
+            Beautifully organize the internet. Access your curated collection of links with real-time simplicity, across every device you own.
+          </p>
+          <div className="pt-6 animate-in fade-in slide-in-from-left-8 duration-700 delay-300">
+            <Link
+              href={user ? '/dashboard' : '/login'}
+              className="inline-flex items-center gap-4 px-10 py-5 bg-foreground text-background font-bold rounded-2xl hover:bg-accent transition-smooth hover:shadow-2xl hover:shadow-accent/20 active:scale-95"
+            >
+              <span>{user ? 'Continue to Library' : 'Start your collection'}</span>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+
+        {/* Features Grid - Minimalist approach */}
+        <div className="grid md:grid-cols-3 gap-12 border-t border-border pt-16 mt-24 mb-32 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-500">
+          <div className="space-y-4">
+            <div className="text-sm font-bold uppercase tracking-[0.2em] text-accent opacity-50">01. Synchronization</div>
+            <h3 className="text-2xl font-semibold tracking-tight">Live Updating</h3>
+            <p className="text-foreground/40 font-medium">Your library breathes with you. Add a link on one device, see it appear instantly on every other tab.</p>
+          </div>
+          <div className="space-y-4">
+            <div className="text-sm font-bold uppercase tracking-[0.2em] text-accent opacity-50">02. Privacy</div>
+            <h3 className="text-2xl font-semibold tracking-tight">Private Access</h3>
+            <p className="text-foreground/40 font-medium">Encrypted by default. Your bookmarks are strictly yours, visible only when you are signed in.</p>
+          </div>
+          <div className="space-y-4">
+            <div className="text-sm font-bold uppercase tracking-[0.2em] text-accent opacity-50">03. Aesthetics</div>
+            <h3 className="text-2xl font-semibold tracking-tight">Simple Premium</h3>
+            <p className="text-foreground/40 font-medium">A human-made interface designed for clarity and peace, removing the noise of the digital world.</p>
+          </div>
+        </div>
+
         {/* Footer */}
-        <p className="text-sm text-gray-500 pt-8">
-          Powered by Next.js, Supabase, and Tailwind CSS
-        </p>
+        <footer className="pt-24 flex flex-col sm:flex-row items-center justify-between border-t border-border gap-8">
+          <div className="text-xs font-bold uppercase tracking-widest text-foreground/20">
+            &copy; {new Date().getFullYear()} Smart Bookmark App
+          </div>
+          <div className="flex gap-8">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-foreground/40">Next.js & Supabase</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-foreground/40">Crafted with Precision</span>
+          </div>
+        </footer>
       </div>
     </div>
   )
