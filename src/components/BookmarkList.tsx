@@ -19,7 +19,7 @@ export default function BookmarkList({
     const [url, setUrl] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    
+
     // Editing state
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
@@ -33,7 +33,7 @@ export default function BookmarkList({
 
         const setupRealtimeSubscription = async () => {
             console.log('Setting up real-time subscription for user:', userId)
-            
+
             channel = supabase
                 .channel('db-changes')
                 .on(
@@ -45,7 +45,7 @@ export default function BookmarkList({
                     },
                     (payload) => {
                         console.log('Real-time event received:', payload.eventType, payload)
-                        
+
                         if (payload.eventType === 'INSERT') {
                             const newBookmark = payload.new as Bookmark
                             setBookmarks((current) => {
@@ -56,9 +56,9 @@ export default function BookmarkList({
                                 }
 
                                 // 2. Check for optimistic match (temp ID with same content)
-                                const optimisticIndex = current.findIndex(b => 
-                                    b.id.startsWith('temp-') && 
-                                    b.url === newBookmark.url && 
+                                const optimisticIndex = current.findIndex(b =>
+                                    b.id.startsWith('temp-') &&
+                                    b.url === newBookmark.url &&
                                     b.title === newBookmark.title
                                 )
 
@@ -88,7 +88,7 @@ export default function BookmarkList({
                     }
                 ).subscribe((status) => {
                     console.log('Subscription status:', status)
-                })           
+                })
         }
 
         setupRealtimeSubscription()
@@ -106,11 +106,17 @@ export default function BookmarkList({
         setError(null)
         setIsSubmitting(true)
 
+        // Auto-prepend https:// if no protocol is specified
+        let processedUrl = url.trim()
+        if (!processedUrl.match(/^https?:\/\//i)) {
+            processedUrl = `https://${processedUrl}`
+        }
+
         const tempId = `temp-${Date.now()}`
         const optimisticBookmark: Bookmark = {
             id: tempId,
             title: title.trim(),
-            url: url.trim(),
+            url: processedUrl,
             user_id: userId,
             created_at: new Date().toISOString()
         }
@@ -118,14 +124,14 @@ export default function BookmarkList({
         // 1. True Optimistic Update - Add to UI immediately
         setBookmarks(current => [optimisticBookmark, ...current])
         const savedTitle = title
-        const savedUrl = url
+        const savedUrl = processedUrl
         setTitle('')
         setUrl('')
 
         try {
             new URL(savedUrl)
             console.log('Inserting bookmark for user:', userId)
-            
+
             const { data, error: insertError } = await supabase
                 .from('bookmarks')
                 .insert({
@@ -140,7 +146,7 @@ export default function BookmarkList({
             if (data && data.length > 0) {
                 const realBookmark = data[0] as Bookmark
                 // Replace temp bookmark with the real one from DB
-                setBookmarks(current => 
+                setBookmarks(current =>
                     current.map(b => b.id === tempId ? realBookmark : b)
                 )
                 console.log('Insert successful, replaced temp bookmark.')
@@ -180,14 +186,20 @@ export default function BookmarkList({
         const originalBookmark = bookmarks.find(b => b.id === editingId)
         if (!originalBookmark) return
 
+        // Auto-prepend https:// if no protocol is specified
+        let processedUrl = editUrl.trim()
+        if (!processedUrl.match(/^https?:\/\//i)) {
+            processedUrl = `https://${processedUrl}`
+        }
+
         const updatedBookmark: Bookmark = {
             ...originalBookmark,
             title: editTitle.trim(),
-            url: editUrl.trim()
+            url: processedUrl
         }
 
         // 1. True Optimistic Update
-        setBookmarks(current => 
+        setBookmarks(current =>
             current.map(b => b.id === editingId ? updatedBookmark : b)
         )
         const savedId = editingId
@@ -196,7 +208,7 @@ export default function BookmarkList({
         try {
             new URL(updatedBookmark.url)
             console.log('Updating bookmark:', savedId)
-            
+
             const { data, error: updateError } = await supabase
                 .from('bookmarks')
                 .update({
@@ -210,14 +222,14 @@ export default function BookmarkList({
 
             if (data && data.length > 0) {
                 const realUpdated = data[0] as Bookmark
-                setBookmarks(current => 
+                setBookmarks(current =>
                     current.map(b => b.id === savedId ? realUpdated : b)
                 )
                 console.log('Update successful.')
             } else {
                 // This happens if the row was not found (e.g. ID mismatch) or RLS blocked it
                 console.warn('Update successful but 0 rows returned. Rollback might be needed if not reflected in DB.')
-                setBookmarks(current => 
+                setBookmarks(current =>
                     current.map(b => b.id === savedId ? originalBookmark : b)
                 )
                 alert('Database update failed (0 rows affected). Your changes were rolled back. Please ensure you are not editing a syncing item.')
@@ -225,7 +237,7 @@ export default function BookmarkList({
         } catch (err) {
             console.error('Error updating bookmark, rolling back:', err)
             // Rollback optimistic update
-            setBookmarks(current => 
+            setBookmarks(current =>
                 current.map(b => b.id === savedId ? originalBookmark : b)
             )
             alert('Failed to update bookmark. Changes rolled back.')
@@ -248,9 +260,9 @@ export default function BookmarkList({
     }
 
     return (
-        <div className="max-w-7xl mx-auto space-y-16">
+        <div className="max-w-7xl mx-auto space-y-8">
             {/* Add Bookmark Section - Compact & Efficient */}
-            <div className="bg-card border border-border rounded-premium p-8 shadow-sm">
+            <div className="bg-card border border-border rounded-premium p-6 shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 md:gap-12">
                     <div className="space-y-1">
                         <h2 className="text-xl font-semibold tracking-tight text-foreground">
@@ -258,7 +270,7 @@ export default function BookmarkList({
                         </h2>
                         <p className="text-xs text-foreground/60">Quickly save a new reference to your library.</p>
                     </div>
-                    
+
                     <form onSubmit={handleSubmit} className="flex-1 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
                         <div className="space-y-1">
                             <input
@@ -274,11 +286,11 @@ export default function BookmarkList({
 
                         <div className="space-y-1">
                             <input
-                                type="url"
+                                type="text"
                                 id="url"
                                 value={url}
                                 onChange={(e) => setUrl(e.target.value)}
-                                placeholder="Source URL (https://...)"
+                                placeholder="URL (e.g., youtube.com or https://...)"
                                 required
                                 className="w-full px-4 py-2.5 bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 transition-smooth text-sm"
                             />
@@ -310,8 +322,8 @@ export default function BookmarkList({
             </div>
 
             {/* Bookmarks List Section */}
-            <div className="space-y-10">
-                <div className="flex items-end justify-between border-b border-border pb-4">
+            <div className="space-y-6">
+                <div className="flex items-end justify-between border-b border-border pb-3">
                     <div className="space-y-0.5">
                         <h2 className="text-2xl font-semibold tracking-tight text-foreground">
                             Library
@@ -324,7 +336,7 @@ export default function BookmarkList({
                                 const now = new Date()
                                 const diff = now.getTime() - latest.getTime()
                                 const hours = diff / (1000 * 60 * 60)
-                                
+
                                 if (hours < 24) {
                                     return (
                                         <>
@@ -356,9 +368,8 @@ export default function BookmarkList({
                         {bookmarks.map((bookmark) => (
                             <div
                                 key={bookmark.id}
-                                className={`group bg-card border transition-smooth relative flex flex-col h-full ${
-                                    editingId === bookmark.id ? 'border-slate-400 ring-1 ring-slate-400 rounded-lg p-4' : 'border-border rounded-premium p-5 hover:shadow-[0_10px_20px_rgba(0,0,0,0.03)] hover:border-slate-300'
-                                }`}
+                                className={`group bg-card border transition-smooth relative flex flex-col h-full ${editingId === bookmark.id ? 'border-slate-400 ring-1 ring-slate-400 rounded-lg p-4' : 'border-border rounded-premium p-5 hover:shadow-[0_10px_20px_rgba(0,0,0,0.03)] hover:border-slate-300'
+                                    }`}
                             >
                                 {editingId === bookmark.id ? (
                                     <form onSubmit={handleUpdate} className="flex-1 flex flex-col gap-3">

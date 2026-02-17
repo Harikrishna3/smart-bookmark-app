@@ -150,7 +150,7 @@ Now you can test Google OAuth login locally!
 ```bash
 git remote add origin <your-github-repo-url>
 git push -u origin main
-```
+```git
 
 ### 2. Deploy to Vercel
 
