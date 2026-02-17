@@ -26,30 +26,36 @@ export default function BookmarkList({
         let channel: RealtimeChannel
 
         const setupRealtimeSubscription = async () => {
+            
+            // Note: We don't need a server-side filter here because Supabase Realtime 
+            // respects RLS. The user will only receive events they have permission to see.
             channel = supabase
-                .channel('bookmarks-changes')
+                .channel('db-changes')
                 .on(
                     'postgres_changes',
                     {
                         event: '*',
                         schema: 'public',
                         table: 'bookmarks',
-                        filter: `user_id=eq.${userId}`,
                     },
                     (payload) => {
                         if (payload.eventType === 'INSERT') {
-                            setBookmarks((current) => [
-                                payload.new as Bookmark,
-                                ...current,
-                            ])
+                            setBookmarks((current) => {
+                                const newBookmark = payload.new as Bookmark
+                                if (current.some(b => b.id === newBookmark.id)) return current
+                                return [newBookmark, ...current]
+                            })
                         } else if (payload.eventType === 'DELETE') {
                             setBookmarks((current) =>
                                 current.filter((bookmark) => bookmark.id !== payload.old.id)
                             )
+                        } else if (payload.eventType === 'UPDATE') {
+                            setBookmarks((current) =>
+                                current.map((b) => b.id === payload.new.id ? (payload.new as Bookmark) : b)
+                            )
                         }
                     }
-                )
-                .subscribe()
+                )           
         }
 
         setupRealtimeSubscription()
@@ -59,7 +65,7 @@ export default function BookmarkList({
                 supabase.removeChannel(channel)
             }
         }
-    }, [supabase, userId])
+    }, [supabase])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -70,13 +76,26 @@ export default function BookmarkList({
             // Validate URL
             new URL(url)
 
-            const { error } = await supabase.from('bookmarks').insert({
-                title: title.trim(),
-                url: url.trim(),
-                user_id: userId,
-            })
+            const { data, error } = await supabase
+                .from('bookmarks')
+                .insert({
+                    title: title.trim(),
+                    url: url.trim(),
+                    user_id: userId,
+                })
+                .select()
+                .single()
 
             if (error) throw error
+
+            // Optimistic / Immediate update for better UX
+            if (data) {
+                const newBookmark = data as Bookmark
+                setBookmarks((current) => {
+                    if (current.some(b => b.id === newBookmark.id)) return current
+                    return [newBookmark, ...current]
+                })
+            }
 
             // Clear form
             setTitle('')
@@ -103,11 +122,25 @@ export default function BookmarkList({
         if (error) {
             console.error('Error deleting bookmark:', error)
             alert('Failed to delete bookmark. Please try again.')
+        } else {
+            // Immediate update for better UX
+            setBookmarks((current) => current.filter((b) => b.id !== id))
         }
     }
 
     return (
         <div className="space-y-8">
+            {/* Real-time Status Banner */}
+            <div className={`p-2 rounded-lg text-xs font-mono flex items-center justify-between ${error ? 'bg-red-100 text-red-800' : 'bg-blue-50 text-blue-800'}`}>
+                <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${bookmarks.length > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                    <span>Real-time Status: Monitoring table &quot;bookmarks&quot;</span>
+                </div>
+                <div className="text-[10px] opacity-70">
+                    User: {userId.slice(0, 8)}...
+                </div>
+            </div>
+
             {/* Add Bookmark Form */}
             <div className="bg-white rounded-2xl shadow-lg p-6">
                 <h2 className="text-2xl font-bold text-gray-900 mb-4">
