@@ -19,6 +19,12 @@ export default function BookmarkList({
     const [url, setUrl] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    
+    // Editing state
+    const [editingId, setEditingId] = useState<string | null>(null)
+    const [editTitle, setEditTitle] = useState('')
+    const [editUrl, setEditUrl] = useState('')
+
     const supabase = createClient()
 
     // Real-time subscription
@@ -26,9 +32,8 @@ export default function BookmarkList({
         let channel: RealtimeChannel
 
         const setupRealtimeSubscription = async () => {
+            console.log('Setting up real-time subscription for user:', userId)
             
-            // Note: We don't need a server-side filter here because Supabase Realtime 
-            // respects RLS. The user will only receive events they have permission to see.
             channel = supabase
                 .channel('db-changes')
                 .on(
@@ -39,76 +44,191 @@ export default function BookmarkList({
                         table: 'bookmarks',
                     },
                     (payload) => {
+                        console.log('Real-time event received:', payload.eventType, payload)
+                        
                         if (payload.eventType === 'INSERT') {
+                            const newBookmark = payload.new as Bookmark
                             setBookmarks((current) => {
-                                const newBookmark = payload.new as Bookmark
-                                if (current.some(b => b.id === newBookmark.id)) return current
+                                // 1. Check for exact ID match (real ID already in list)
+                                if (current.some(b => b.id === newBookmark.id)) {
+                                    console.log('Duplicate bookmark ignored:', newBookmark.id)
+                                    return current
+                                }
+
+                                // 2. Check for optimistic match (temp ID with same content)
+                                const optimisticIndex = current.findIndex(b => 
+                                    b.id.startsWith('temp-') && 
+                                    b.url === newBookmark.url && 
+                                    b.title === newBookmark.title
+                                )
+
+                                if (optimisticIndex !== -1) {
+                                    console.log('Optimistic match found, replacing temp ID with real ID')
+                                    const updated = [...current]
+                                    updated[optimisticIndex] = newBookmark
+                                    return updated
+                                }
+
+                                console.log('Adding new bookmark to list:', newBookmark.title)
                                 return [newBookmark, ...current]
                             })
                         } else if (payload.eventType === 'DELETE') {
+                            const deletedId = payload.old.id
+                            console.log('Removing bookmark from list:', deletedId)
                             setBookmarks((current) =>
-                                current.filter((bookmark) => bookmark.id !== payload.old.id)
+                                current.filter((bookmark) => bookmark.id !== deletedId)
                             )
                         } else if (payload.eventType === 'UPDATE') {
+                            const updatedBookmark = payload.new as Bookmark
+                            console.log('Updating bookmark in list:', updatedBookmark.title)
                             setBookmarks((current) =>
-                                current.map((b) => b.id === payload.new.id ? (payload.new as Bookmark) : b)
+                                current.map((b) => b.id === updatedBookmark.id ? updatedBookmark : b)
                             )
                         }
                     }
-                )           
+                ).subscribe((status) => {
+                    console.log('Subscription status:', status)
+                })           
         }
 
         setupRealtimeSubscription()
 
         return () => {
             if (channel) {
+                console.log('Cleaning up real-time subscription')
                 supabase.removeChannel(channel)
             }
         }
-    }, [supabase])
+    }, [supabase, userId])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setError(null)
         setIsSubmitting(true)
 
-        try {
-            // Validate URL
-            new URL(url)
+        const tempId = `temp-${Date.now()}`
+        const optimisticBookmark: Bookmark = {
+            id: tempId,
+            title: title.trim(),
+            url: url.trim(),
+            user_id: userId,
+            created_at: new Date().toISOString()
+        }
 
-            const { data, error } = await supabase
+        // 1. True Optimistic Update - Add to UI immediately
+        setBookmarks(current => [optimisticBookmark, ...current])
+        const savedTitle = title
+        const savedUrl = url
+        setTitle('')
+        setUrl('')
+
+        try {
+            new URL(savedUrl)
+            console.log('Inserting bookmark for user:', userId)
+            
+            const { data, error: insertError } = await supabase
                 .from('bookmarks')
                 .insert({
-                    title: title.trim(),
-                    url: url.trim(),
+                    title: savedTitle.trim(),
+                    url: savedUrl.trim(),
                     user_id: userId,
                 })
                 .select()
-                .single()
 
-            if (error) throw error
+            if (insertError) throw insertError
 
-            // Optimistic / Immediate update for better UX
-            if (data) {
-                const newBookmark = data as Bookmark
-                setBookmarks((current) => {
-                    if (current.some(b => b.id === newBookmark.id)) return current
-                    return [newBookmark, ...current]
-                })
-            }
-
-            // Clear form
-            setTitle('')
-            setUrl('')
-        } catch (err) {
-            if (err instanceof TypeError) {
-                setError('Please enter a valid URL')
+            if (data && data.length > 0) {
+                const realBookmark = data[0] as Bookmark
+                // Replace temp bookmark with the real one from DB
+                setBookmarks(current => 
+                    current.map(b => b.id === tempId ? realBookmark : b)
+                )
+                console.log('Insert successful, replaced temp bookmark.')
             } else {
-                setError('Failed to add bookmark. Please try again.')
+                console.warn('Insert successful but no data returned (RLS check). Keeping temp bookmark.')
             }
-            console.error('Error adding bookmark:', err)
+        } catch (err) {
+            console.error('Error adding bookmark, rolling back:', err)
+            // Rollback optimistic update
+            setBookmarks(current => current.filter(b => b.id !== tempId))
+            setTitle(savedTitle)
+            setUrl(savedUrl)
+            setError(err instanceof TypeError ? 'Please enter a valid URL' : 'Failed to save bookmark. Check your connection.')
         } finally {
             setIsSubmitting(false)
+        }
+    }
+
+    const handleEdit = (bookmark: Bookmark) => {
+        if (bookmark.id.startsWith('temp-')) return
+        setEditingId(bookmark.id)
+        setEditTitle(bookmark.title)
+        setEditUrl(bookmark.url)
+    }
+
+    const cancelEdit = () => {
+        setEditingId(null)
+        setEditTitle('')
+        setEditUrl('')
+    }
+
+    const handleUpdate = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!editingId) return
+        setError(null)
+
+        const originalBookmark = bookmarks.find(b => b.id === editingId)
+        if (!originalBookmark) return
+
+        const updatedBookmark: Bookmark = {
+            ...originalBookmark,
+            title: editTitle.trim(),
+            url: editUrl.trim()
+        }
+
+        // 1. True Optimistic Update
+        setBookmarks(current => 
+            current.map(b => b.id === editingId ? updatedBookmark : b)
+        )
+        const savedId = editingId
+        setEditingId(null)
+
+        try {
+            new URL(updatedBookmark.url)
+            console.log('Updating bookmark:', savedId)
+            
+            const { data, error: updateError } = await supabase
+                .from('bookmarks')
+                .update({
+                    title: updatedBookmark.title,
+                    url: updatedBookmark.url,
+                })
+                .eq('id', savedId)
+                .select()
+
+            if (updateError) throw updateError
+
+            if (data && data.length > 0) {
+                const realUpdated = data[0] as Bookmark
+                setBookmarks(current => 
+                    current.map(b => b.id === savedId ? realUpdated : b)
+                )
+                console.log('Update successful.')
+            } else {
+                // This happens if the row was not found (e.g. ID mismatch) or RLS blocked it
+                console.warn('Update successful but 0 rows returned. Rollback might be needed if not reflected in DB.')
+                setBookmarks(current => 
+                    current.map(b => b.id === savedId ? originalBookmark : b)
+                )
+                alert('Database update failed (0 rows affected). Your changes were rolled back. Please ensure you are not editing a syncing item.')
+            }
+        } catch (err) {
+            console.error('Error updating bookmark, rolling back:', err)
+            // Rollback optimistic update
+            setBookmarks(current => 
+                current.map(b => b.id === savedId ? originalBookmark : b)
+            )
+            alert('Failed to update bookmark. Changes rolled back.')
         }
     }
 
@@ -123,187 +243,219 @@ export default function BookmarkList({
             console.error('Error deleting bookmark:', error)
             alert('Failed to delete bookmark. Please try again.')
         } else {
-            // Immediate update for better UX
             setBookmarks((current) => current.filter((b) => b.id !== id))
         }
     }
 
     return (
-        <div className="space-y-8">
-            {/* Real-time Status Banner */}
-            <div className={`p-2 rounded-lg text-xs font-mono flex items-center justify-between ${error ? 'bg-red-100 text-red-800' : 'bg-blue-50 text-blue-800'}`}>
-                <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${bookmarks.length > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                    <span>Real-time Status: Monitoring table &quot;bookmarks&quot;</span>
+        <div className="max-w-7xl mx-auto space-y-10">
+            {/* Real-time Status Banner - Compact */}
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-full text-[9px] font-bold tracking-widest uppercase text-foreground/40 shadow-sm animate-in fade-in slide-in-from-left-2">
+                <div className="relative">
+                    <div className="w-1 h-1 bg-green-500 rounded-full" />
+                    <div className="absolute inset-0 w-1 h-1 bg-green-500 rounded-full animate-ping opacity-75" />
                 </div>
-                <div className="text-[10px] opacity-70">
-                    User: {userId.slice(0, 8)}...
-                </div>
+                <span>Sync Active</span>
             </div>
 
-            {/* Add Bookmark Form */}
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                    Add New Bookmark
-                </h2>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label
-                            htmlFor="title"
-                            className="block text-sm font-medium text-gray-700 mb-2"
-                        >
-                            Title
-                        </label>
-                        <input
-                            type="text"
-                            id="title"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="My Favorite Website"
-                            required
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
+            {/* Add Bookmark Section - Compact & Efficient */}
+            <div className="bg-card border border-border rounded-premium p-6 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                    <div className="space-y-1">
+                        <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                            Add <span className="text-slate-500">Bookmark</span>
+                        </h2>
+                        <p className="text-xs text-foreground/40">Quickly save a new reference to your library.</p>
                     </div>
-
-                    <div>
-                        <label
-                            htmlFor="url"
-                            className="block text-sm font-medium text-gray-700 mb-2"
-                        >
-                            URL
-                        </label>
-                        <input
-                            type="url"
-                            id="url"
-                            value={url}
-                            onChange={(e) => setUrl(e.target.value)}
-                            placeholder="https://example.com"
-                            required
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                    </div>
-
-                    {error && (
-                        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                            {error}
+                    
+                    <form onSubmit={handleSubmit} className="flex-1 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+                        <div className="space-y-1">
+                            <input
+                                type="text"
+                                id="title"
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                placeholder="Title (e.g. Design Inspiration)"
+                                required
+                                className="w-full px-4 py-2.5 bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 transition-smooth text-sm"
+                            />
                         </div>
-                    )}
 
-                    <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-medium rounded-lg hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isSubmitting ? (
-                            <span className="flex items-center justify-center gap-2">
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                Adding...
-                            </span>
-                        ) : (
-                            'Add Bookmark'
-                        )}
-                    </button>
-                </form>
+                        <div className="space-y-1">
+                            <input
+                                type="url"
+                                id="url"
+                                value={url}
+                                onChange={(e) => setUrl(e.target.value)}
+                                placeholder="Source URL (https://...)"
+                                required
+                                className="w-full px-4 py-2.5 bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 transition-smooth text-sm"
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-800 text-white font-semibold rounded-lg hover:bg-slate-700 transition-smooth active:scale-[0.98] disabled:opacity-50 text-sm shadow-sm"
+                        >
+                            {isSubmitting ? (
+                                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            ) : (
+                                <>
+                                    <span>Save</span>
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                </>
+                            )}
+                        </button>
+                    </form>
+                </div>
+                {error && (
+                    <div className="mt-4 p-3 bg-red-50/50 border border-red-100 rounded-lg text-red-700 text-[11px] font-medium animate-in fade-in slide-in-from-top-1">
+                        {error}
+                    </div>
+                )}
             </div>
 
-            {/* Bookmarks List */}
-            <div>
-                <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-2xl font-bold text-gray-900">
-                        Your Bookmarks
-                        <span className="ml-2 text-sm font-normal text-gray-500">
-                            ({bookmarks.length})
-                        </span>
-                    </h2>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                        <span>Live</span>
+            {/* Bookmarks List Section */}
+            <div className="space-y-6">
+                <div className="flex items-end justify-between border-b border-border pb-4">
+                    <div className="space-y-0.5">
+                        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                            Library
+                        </h2>
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-foreground/30 uppercase tracking-widest">
+                            <span>{bookmarks.length} Curated Items</span>
+                            <span className="w-1 h-1 bg-border rounded-full" />
+                            <span>Recently Added</span>
+                        </div>
                     </div>
                 </div>
 
                 {bookmarks.length === 0 ? (
-                    <div className="bg-white rounded-2xl shadow-lg p-12 text-center">
-                        <svg
-                            className="w-16 h-16 text-gray-300 mx-auto mb-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                            />
-                        </svg>
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">
-                            No bookmarks yet
-                        </h3>
-                        <p className="text-gray-600">
-                            Add your first bookmark using the form above
+                    <div className="bg-card border border-dashed border-border rounded-premium p-16 text-center space-y-3">
+                        <div className="w-12 h-12 bg-background rounded-full flex items-center justify-center mx-auto text-foreground/10 border border-border">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                            </svg>
+                        </div>
+                        <h3 className="text-base font-medium text-foreground/60">No items found</h3>
+                        <p className="text-foreground/30 max-w-xs mx-auto text-xs leading-relaxed">
+                            Your library is waiting. Add your first digital discovery above.
                         </p>
                     </div>
                 ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                         {bookmarks.map((bookmark) => (
                             <div
                                 key={bookmark.id}
-                                className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-200 overflow-hidden group"
+                                className={`group bg-card border transition-smooth relative flex flex-col h-full ${
+                                    editingId === bookmark.id ? 'border-slate-400 ring-1 ring-slate-400 rounded-lg p-4' : 'border-border rounded-premium p-5 hover:shadow-[0_10px_20px_rgba(0,0,0,0.03)] hover:border-slate-300'
+                                }`}
                             >
-                                <div className="p-5">
-                                    <div className="flex items-start justify-between gap-3 mb-3">
-                                        <h3 className="font-semibold text-gray-900 line-clamp-2 flex-1">
-                                            {bookmark.title}
-                                        </h3>
-                                        <button
-                                            onClick={() => handleDelete(bookmark.id)}
-                                            className="flex-shrink-0 text-gray-400 hover:text-red-600 transition-colors"
-                                            title="Delete bookmark"
-                                        >
-                                            <svg
-                                                className="w-5 h-5"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
+                                {editingId === bookmark.id ? (
+                                    <form onSubmit={handleUpdate} className="flex-1 flex flex-col gap-3">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Title</label>
+                                            <input
+                                                type="text"
+                                                value={editTitle}
+                                                onChange={(e) => setEditTitle(e.target.value)}
+                                                className="w-full px-3 py-2 bg-background border border-border rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                                                required
+                                                autoFocus
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">URL</label>
+                                            <input
+                                                type="url"
+                                                value={editUrl}
+                                                onChange={(e) => setEditUrl(e.target.value)}
+                                                className="w-full px-3 py-2 bg-background border border-border rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-400"
+                                                required
+                                            />
+                                        </div>
+                                        <div className="mt-auto pt-4 flex gap-2">
+                                            <button
+                                                type="submit"
+                                                className="flex-1 py-2 bg-slate-800 text-white text-xs font-bold rounded hover:bg-slate-700 transition-smooth"
                                             >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                                />
-                                            </svg>
-                                        </button>
-                                    </div>
+                                                Save Changes
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={cancelEdit}
+                                                className="px-3 py-2 border border-border text-xs font-bold rounded hover:bg-slate-50 transition-smooth"
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </form>
+                                ) : (
+                                    <>
+                                        <div className="flex-1 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase truncate max-w-[120px]">
+                                                        {new URL(bookmark.url).hostname}
+                                                    </div>
+                                                    {bookmark.id.startsWith('temp-') && (
+                                                        <div className="flex items-center gap-1 text-[8px] font-bold text-slate-400 animate-pulse">
+                                                            <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                                                            <span>Syncing</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
+                                                    <button
+                                                        onClick={() => handleEdit(bookmark)}
+                                                        disabled={bookmark.id.startsWith('temp-')}
+                                                        className="p-1.5 text-foreground/10 hover:text-slate-600 hover:bg-slate-50 rounded-md transition-smooth disabled:opacity-30 disabled:hover:bg-transparent"
+                                                        title={bookmark.id.startsWith('temp-') ? "Wait for sync" : "Edit"}
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                        </svg>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(bookmark.id)}
+                                                        className="p-1.5 text-foreground/10 hover:text-red-500 hover:bg-red-50 rounded-md transition-smooth"
+                                                        title="Remove"
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
 
-                                    <a
-                                        href={bookmark.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-600 hover:text-blue-700 text-sm break-all line-clamp-1 group-hover:underline"
-                                    >
-                                        {bookmark.url}
-                                    </a>
+                                            <h3 className="text-sm font-semibold text-foreground leading-snug line-clamp-2 min-h-[2.5rem] group-hover:text-slate-600 transition-smooth">
+                                                {bookmark.title}
+                                            </h3>
+                                        </div>
 
-                                    <p className="text-xs text-gray-500 mt-3">
-                                        {new Date(bookmark.created_at).toLocaleDateString('en-US', {
-                                            year: 'numeric',
-                                            month: 'short',
-                                            day: 'numeric',
-                                        })}
-                                    </p>
-                                </div>
-
-                                <div className="px-5 pb-4">
-                                    <a
-                                        href={bookmark.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="block w-full text-center px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200"
-                                    >
-                                        Visit Site →
-                                    </a>
-                                </div>
+                                        <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
+                                            <div className="text-[9px] font-bold text-foreground/20 uppercase tracking-widest">
+                                                {new Date(bookmark.created_at).toLocaleDateString('en-US', {
+                                                    month: 'short', day: 'numeric',
+                                                })}
+                                            </div>
+                                            <a
+                                                href={bookmark.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[10px] font-bold text-slate-600 hover:text-slate-900 uppercase tracking-widest flex items-center gap-1 group/link"
+                                            >
+                                                Open
+                                                <svg className="w-3 h-3 transition-smooth group-hover/link:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                                </svg>
+                                            </a>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         ))}
                     </div>
