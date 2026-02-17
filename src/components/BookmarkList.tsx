@@ -327,23 +327,23 @@ export default function BookmarkList({
                         </h2>
                         <div className="flex items-center gap-2 text-[10px] font-bold text-foreground/30 uppercase tracking-widest">
                             <span>{bookmarks.length} Curated Items</span>
-                            <span className="w-1 h-1 bg-border rounded-full" />
-                            <span>
-                                {bookmarks.length > 0 ? (
-                                    (() => {
-                                        const latest = new Date(Math.max(...bookmarks.map(b => new Date(b.created_at).getTime())))
-                                        const now = new Date()
-                                        const diff = now.getTime() - latest.getTime()
-                                        const hours = diff / (1000 * 60 * 60)
-                                        
-                                        if (hours < 1) return 'Just Updated'
-                                        if (hours < 24) return 'Updated Today'
-                                        return 'All Items Synced'
-                                    })()
-                                ) : (
-                                    'Empty Collection'
-                                )}
-                            </span>
+                            {(() => {
+                                if (bookmarks.length === 0) return null
+                                const latest = new Date(Math.max(...bookmarks.map(b => new Date(b.created_at).getTime())))
+                                const now = new Date()
+                                const diff = now.getTime() - latest.getTime()
+                                const hours = diff / (1000 * 60 * 60)
+                                
+                                if (hours < 24) {
+                                    return (
+                                        <>
+                                            <span className="w-1 h-1 bg-border rounded-full" />
+                                            <span>{hours < 1 ? 'Just Updated' : 'Updated Today'}</span>
+                                        </>
+                                    )
+                                }
+                                return null
+                            })()}
                         </div>
                     </div>
                 </div>
