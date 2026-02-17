@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 export default function LoginPage() {
-    const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
     const supabase = createClient()
 
     const handleGoogleSignIn = async () => {
         setIsLoading(true)
+        setError(null)
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
@@ -20,6 +21,7 @@ export default function LoginPage() {
 
         if (error) {
             console.error('Error signing in:', error.message)
+            setError(error.message)
             setIsLoading(false)
         }
     }
@@ -55,6 +57,12 @@ export default function LoginPage() {
 
                     {/* Sign In Button */}
                     <div className="space-y-4">
+                        {error && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm animate-in fade-in slide-in-from-top-2">
+                                <p className="font-semibold">Sign in failed</p>
+                                <p className="opacity-90">{error}</p>
+                            </div>
+                        )}
                         <button
                             onClick={handleGoogleSignIn}
                             disabled={isLoading}
