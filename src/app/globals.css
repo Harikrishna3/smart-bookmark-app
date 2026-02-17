@@ -2,26 +2,38 @@
 
 @import "tailwindcss";
 
+@variant dark (.dark &);
+
 @layer theme {
   :root {
-    --background: #F8FAFC; /* Cooler off-white/silver */
-    --foreground: #0F172A; /* Deep slate */
-    --accent: #334155; /* Slate blue-gray */
+    --background: #F8FAFC;
+    /* Cooler off-white/silver */
+    --foreground: #0F172A;
+    /* Deep slate */
+    --accent: #334155;
+    /* Slate blue-gray */
     --accent-muted: #F1F5F9;
     --border: rgba(15, 23, 42, 0.06);
     --card: #FFFFFF;
-    
-    --radius-premium: 0.75rem; /* More compact/sharper corners */
+
+    --radius-premium: 0.75rem;
+    /* More compact/sharper corners */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .dark {
     --background: #0B0E14;
-    --foreground: #F1F5F9;
+    /* Deep dark blue-black */
+    --foreground: #E2E8F0;
+    /* Light slate */
     --accent: #94A3B8;
+    /* Muted blue-gray */
     --accent-muted: #1E293B;
-    --border: rgba(241, 245, 249, 0.08);
-    --card: #151921;
+    /* Dark slate */
+    --border: rgba(148, 163, 184, 0.12);
+    /* Subtle borders */
+    --card: #1A202C;
+    /* Dark card background */
   }
 }
 
@@ -32,14 +44,21 @@
   --color-accent-muted: var(--accent-muted);
   --color-border: var(--border);
   --color-card: var(--card);
-  
+
   --radius-premium: var(--radius-premium);
-  
+
   --animate-float: float 6s ease-in-out infinite;
 
   @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
+
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
   }
 }
 
@@ -77,5 +96,13 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(18, 18, 18, 0.2);
+  background: rgba(148, 163, 184, 0.3);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
 }

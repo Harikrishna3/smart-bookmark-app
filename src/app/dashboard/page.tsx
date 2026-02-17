@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import BookmarkList from '@/components/BookmarkList'
+import ThemeToggle from '@/components/ThemeToggle'
 import type { Bookmark } from '@/types/database.types'
 
 export default async function DashboardPage() {
@@ -28,9 +29,9 @@ export default async function DashboardPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:bg-gradient-to-br dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
             {/* Header */}
-            <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
+            <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 sticky top-0 z-10 shadow-sm">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -50,21 +51,24 @@ export default async function DashboardPage() {
                                 </svg>
                             </div>
                             <div>
-                                <h1 className="text-xl font-bold text-gray-900">
+                                <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                                     Smart Bookmark
                                 </h1>
-                                <p className="text-sm text-gray-600">{user.email}</p>
+                                <p className="text-sm text-gray-600 dark:text-slate-400">{user.email}</p>
                             </div>
                         </div>
 
-                        <form action={handleSignOut}>
-                            <button
-                                type="submit"
-                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all duration-200"
-                            >
-                                Sign Out
-                            </button>
-                        </form>
+                        <div className="flex items-center gap-3">
+                            <ThemeToggle />
+                            <form action={handleSignOut}>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all duration-200"
+                                >
+                                    Sign Out
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </header>
