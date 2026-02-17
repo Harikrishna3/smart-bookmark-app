@@ -1,3 +1,4 @@
+import ThemeToggle from '@/components/ThemeToggle'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 
@@ -20,12 +21,15 @@ export default async function Home() {
             </div>
             <span className="text-xl font-semibold tracking-tight">Smart Bookmarks</span>
           </div>
-          <Link
-            href={user ? '/dashboard' : '/login'}
-            className="text-sm font-bold uppercase tracking-widest text-foreground hover:text-accent transition-smooth border-b border-transparent hover:border-accent"
-          >
-            {user ? 'Dashboard' : 'Sign In'}
-          </Link>
+          <div className="flex items-center gap-4">
+            <ThemeToggle />
+            <Link
+              href={user ? '/dashboard' : '/login'}
+              className="text-sm font-bold uppercase tracking-widest text-foreground hover:text-accent transition-smooth border-b border-transparent hover:border-accent"
+            >
+              {user ? 'Dashboard' : 'Sign In'}
+            </Link>
+          </div>
         </div>
 
         {/* Hero Section */}
@@ -60,11 +64,6 @@ export default async function Home() {
             <div className="text-sm font-bold uppercase tracking-[0.2em] text-accent opacity-50">02. Privacy</div>
             <h3 className="text-2xl font-semibold tracking-tight">Private Access</h3>
             <p className="text-foreground/40 font-medium">Encrypted by default. Your bookmarks are strictly yours, visible only when you are signed in.</p>
-          </div>
-          <div className="space-y-4">
-            <div className="text-sm font-bold uppercase tracking-[0.2em] text-accent opacity-50">03. Aesthetics</div>
-            <h3 className="text-2xl font-semibold tracking-tight">Simple Premium</h3>
-            <p className="text-foreground/40 font-medium">A human-made interface designed for clarity and peace, removing the noise of the digital world.</p>
           </div>
         </div>
 
