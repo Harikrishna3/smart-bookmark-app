@@ -1,12 +1,20 @@
 import ThemeToggle from '@/components/ThemeToggle'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 
 export default async function Home() {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
+  const handleSignOut = async () => {
+    'use server'
+    const supabase = await createClient()
+    await supabase.auth.signOut()
+    redirect('/login')
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-accent selection:text-white px-6 overflow-x-hidden">
@@ -23,12 +31,31 @@ export default async function Home() {
           </div>
           <div className="flex items-center gap-4">
             <ThemeToggle />
-            <Link
-              href={user ? '/dashboard' : '/login'}
-              className="text-sm font-bold uppercase tracking-widest text-foreground hover:text-accent transition-smooth border-b border-transparent hover:border-accent"
-            >
-              {user ? 'Dashboard' : 'Sign In'}
-            </Link>
+            {user ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  className="text-sm font-bold uppercase tracking-widest text-foreground hover:text-accent transition-smooth border-b border-transparent hover:border-accent"
+                >
+                  Dashboard
+                </Link>
+                <form action={handleSignOut}>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-smooth"
+                  >
+                    Sign Out
+                  </button>
+                </form>
+              </>
+            ) : (
+              <Link
+                href="/login"
+                className="text-sm font-bold uppercase tracking-widest text-foreground hover:text-accent transition-smooth border-b border-transparent hover:border-accent"
+              >
+                Sign In
+              </Link>
+            )}
           </div>
         </div>
 
