@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Bookmark } from '@/types/database.types'
 import { RealtimeChannel } from '@supabase/supabase-js'
@@ -17,6 +17,9 @@ export default function BookmarkList({
     const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialBookmarks)
     const [title, setTitle] = useState('')
     const [url, setUrl] = useState('')
+    const [description, setDescription] = useState('')
+    const [tagInput, setTagInput] = useState('')
+    const [selectedTags, setSelectedTags] = useState<string[]>([])
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -24,10 +27,13 @@ export default function BookmarkList({
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState('')
     const [editUrl, setEditUrl] = useState('')
+    const [editDescription, setEditDescription] = useState('')
+    const [editTags, setEditTags] = useState<string[]>([])
 
-    // Search & Sort state
+    // Search, Sort & Filter state
     const [searchQuery, setSearchQuery] = useState('')
     const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'domain'>('date-desc')
+    const [selectedTagFilter, setSelectedTagFilter] = useState<string | null>(null)
 
     const supabase = createClient()
 
@@ -105,6 +111,53 @@ export default function BookmarkList({
         }
     }, [supabase, userId])
 
+    // Tag color generator - consistent colors for same tag names
+    const getTagColor = (tag: string) => {
+        const colors = [
+            'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500',
+            'bg-yellow-500', 'bg-indigo-500', 'bg-red-500', 'bg-teal-500'
+        ]
+        let hash = 0
+        for (let i = 0; i < tag.length; i++) {
+            hash = tag.charCodeAt(i) + ((hash << 5) - hash)
+        }
+        return colors[Math.abs(hash) % colors.length]
+    }
+
+    // Add tag to current bookmark
+    const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && tagInput.trim()) {
+            e.preventDefault()
+            const newTag = tagInput.trim().toLowerCase()
+            if (!selectedTags.includes(newTag)) {
+                setSelectedTags([...selectedTags, newTag])
+            }
+            setTagInput('')
+        }
+    }
+
+    // Remove tag
+    const handleRemoveTag = (tagToRemove: string) => {
+        setSelectedTags(selectedTags.filter(t => t !== tagToRemove))
+    }
+
+    // Add tag to edit mode
+    const handleAddEditTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && tagInput.trim()) {
+            e.preventDefault()
+            const newTag = tagInput.trim().toLowerCase()
+            if (!editTags.includes(newTag)) {
+                setEditTags([...editTags, newTag])
+            }
+            setTagInput('')
+        }
+    }
+
+    // Remove tag from edit mode
+    const handleRemoveEditTag = (tagToRemove: string) => {
+        setEditTags(editTags.filter(t => t !== tagToRemove))
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setError(null)
@@ -129,6 +182,7 @@ export default function BookmarkList({
             id: tempId,
             title: title.trim(),
             url: processedUrl,
+            description: description.trim() || undefined,
             user_id: userId,
             created_at: new Date().toISOString()
         }
@@ -137,8 +191,10 @@ export default function BookmarkList({
         setBookmarks(current => [optimisticBookmark, ...current])
         const savedTitle = title
         const savedUrl = processedUrl
+        const savedDescription = description
         setTitle('')
         setUrl('')
+        setDescription('')
 
         try {
             new URL(savedUrl)
@@ -146,12 +202,14 @@ export default function BookmarkList({
 
             const { data, error: insertError } = await supabase
                 .from('bookmarks')
-                .insert({
-                    title: savedTitle.trim(),
-                    url: savedUrl.trim(),
-                    user_id: userId,
-                })
+                .insert([{
+                    title: savedTitle,
+                    url: savedUrl,
+                    description: savedDescription.trim() || null,
+                    user_id: userId
+                }])
                 .select()
+                .single()
 
             if (insertError) throw insertError
 
@@ -182,12 +240,17 @@ export default function BookmarkList({
         setEditingId(bookmark.id)
         setEditTitle(bookmark.title)
         setEditUrl(bookmark.url)
+        setEditDescription(bookmark.description || '')
+        setEditTags(bookmark.tags || [])
     }
 
     const cancelEdit = () => {
         setEditingId(null)
         setEditTitle('')
         setEditUrl('')
+        setEditDescription('')
+        setEditTags([])
+        setTagInput('')
     }
 
     const handleUpdate = async (e: React.FormEvent) => {
@@ -207,7 +270,9 @@ export default function BookmarkList({
         const updatedBookmark: Bookmark = {
             ...originalBookmark,
             title: editTitle.trim(),
-            url: processedUrl
+            url: processedUrl,
+            description: editDescription.trim() || undefined,
+            tags: editTags.length > 0 ? editTags : undefined
         }
 
         // 1. True Optimistic Update
@@ -226,6 +291,8 @@ export default function BookmarkList({
                 .update({
                     title: updatedBookmark.title,
                     url: updatedBookmark.url,
+                    description: updatedBookmark.description || null,
+                    tags: updatedBookmark.tags || null,
                 })
                 .eq('id', savedId)
                 .select()
@@ -271,17 +338,28 @@ export default function BookmarkList({
         }
     }
 
-    // Filter and Sort bookmarks
-    const filteredAndSortedBookmarks = bookmarks
-        .filter(bookmark => {
-            if (!searchQuery.trim()) return true
+    // Search, filter, and sort bookmarks
+    const filteredAndSortedBookmarks = useMemo(() => {
+        let filtered = bookmarks
+
+        // Apply search filter
+        if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase()
-            const matchesTitle = bookmark.title.toLowerCase().includes(query)
-            const matchesUrl = bookmark.url.toLowerCase().includes(query)
-            const matchesDomain = new URL(bookmark.url).hostname.toLowerCase().includes(query)
-            return matchesTitle || matchesUrl || matchesDomain
-        })
-        .sort((a, b) => {
+            filtered = filtered.filter(bookmark =>
+                bookmark.title.toLowerCase().includes(query) ||
+                bookmark.url.toLowerCase().includes(query) ||
+                (bookmark.description && bookmark.description.toLowerCase().includes(query)) ||
+                (bookmark.tags && bookmark.tags.some(tag => tag.toLowerCase().includes(query)))
+            )
+        }
+
+        // Apply tag filter
+        if (selectedTagFilter) {
+            filtered = filtered.filter(bookmark =>
+                bookmark.tags && bookmark.tags.includes(selectedTagFilter)
+            )
+        }
+        return filtered.sort((a, b) => {
             switch (sortBy) {
                 case 'date-desc':
                     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -297,12 +375,24 @@ export default function BookmarkList({
                     return 0
             }
         })
+    }, [bookmarks, searchQuery, selectedTagFilter, sortBy])
+
+    // Get all unique tags from bookmarks
+    const allTags = useMemo(() => {
+        const tags = new Set<string>()
+        bookmarks.forEach(bookmark => {
+            if (bookmark.tags) {
+                bookmark.tags.forEach(tag => tags.add(tag))
+            }
+        })
+        return Array.from(tags).sort()
+    }, [bookmarks])
 
     return (
         <div className="max-w-7xl mx-auto space-y-8">
-            {/* Add Bookmark Section - Compact & Efficient */}
+            {/* Add Bookmark Section - Minimalist */}
             <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-premium p-6 shadow-sm">
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 md:gap-12">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 md:gap-8">
                     <div className="space-y-1">
                         <h2 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
                             Add <span className="text-slate-600 dark:text-slate-400">Bookmark</span>
@@ -310,30 +400,26 @@ export default function BookmarkList({
                         <p className="text-xs text-slate-600 dark:text-slate-400">Quickly save a new reference to your library.</p>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="flex-1 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
-                        <div className="space-y-1">
-                            <input
-                                type="text"
-                                id="title"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                                placeholder="Title (e.g. Design Inspiration)"
-                                required
-                                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 transition-smooth text-sm text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-slate-400"
-                            />
-                        </div>
+                    <form onSubmit={handleSubmit} className="flex-1 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+                        <input
+                            type="text"
+                            id="title"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            placeholder="Title (e.g., Design Inspiration)"
+                            required
+                            className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 transition-smooth text-sm text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-slate-400"
+                        />
 
-                        <div className="space-y-1">
-                            <input
-                                type="text"
-                                id="url"
-                                value={url}
-                                onChange={(e) => setUrl(e.target.value)}
-                                placeholder="URL (e.g., youtube.com or https://...)"
-                                required
-                                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 transition-smooth text-sm text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-slate-400"
-                            />
-                        </div>
+                        <input
+                            type="text"
+                            id="url"
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            placeholder="URL (e.g., youtube.com or https://...)"
+                            required
+                            className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 transition-smooth text-sm text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-slate-400"
+                        />
 
                         <button
                             type="submit"
@@ -353,15 +439,43 @@ export default function BookmarkList({
                         </button>
                     </form>
                 </div>
-                {error && (
-                    <div className="mt-4 p-3 bg-red-50/50 border border-red-100 rounded-lg text-red-700 text-[11px] font-medium animate-in fade-in slide-in-from-top-1">
-                        {error}
-                    </div>
-                )}
             </div>
+
+            {error && (
+                <div className="mt-4 p-3 bg-red-50/50 border border-red-100 rounded-lg text-red-700 text-[11px] font-medium animate-in fade-in slide-in-from-top-1">
+                    {error}
+                </div>
+            )}
 
             {/* Bookmarks List Section */}
             <div className="space-y-6">
+                {/* Tag Filter Bar */}
+                {allTags.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-gray-200 dark:border-slate-700">
+                        <button
+                            onClick={() => setSelectedTagFilter(null)}
+                            className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-smooth ${selectedTagFilter === null
+                                ? 'bg-slate-800 dark:bg-blue-600 text-white'
+                                : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600'
+                                }`}
+                        >
+                            All
+                        </button>
+                        {allTags.map(tag => (
+                            <button
+                                key={tag}
+                                onClick={() => setSelectedTagFilter(selectedTagFilter === tag ? null : tag)}
+                                className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-smooth ${selectedTagFilter === tag
+                                    ? `${getTagColor(tag)} text-white`
+                                    : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600'
+                                    }`}
+                            >
+                                {tag}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end justify-between border-b border-gray-200 dark:border-slate-700 pb-4">
                     <div className="space-y-0.5">
                         <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
@@ -469,39 +583,73 @@ export default function BookmarkList({
                             >
                                 {editingId === bookmark.id ? (
                                     <form onSubmit={handleUpdate} className="flex-1 flex flex-col gap-3">
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Title</label>
+                                        <input
+                                            type="text"
+                                            value={editTitle}
+                                            onChange={(e) => setEditTitle(e.target.value)}
+                                            placeholder="Title"
+                                            className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 text-gray-900 dark:text-white"
+                                            required
+                                            autoFocus
+                                        />
+                                        <input
+                                            type="url"
+                                            value={editUrl}
+                                            onChange={(e) => setEditUrl(e.target.value)}
+                                            placeholder="URL"
+                                            className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 text-gray-900 dark:text-white"
+                                            required
+                                        />
+                                        <textarea
+                                            value={editDescription}
+                                            onChange={(e) => setEditDescription(e.target.value)}
+                                            placeholder="Description (optional)"
+                                            className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 text-gray-900 dark:text-white resize-none"
+                                            rows={2}
+                                        />
+                                        <div>
                                             <input
                                                 type="text"
-                                                value={editTitle}
-                                                onChange={(e) => setEditTitle(e.target.value)}
+                                                value={tagInput}
+                                                onChange={(e) => setTagInput(e.target.value)}
+                                                onKeyDown={handleAddEditTag}
+                                                placeholder="Add tags (press Enter)"
                                                 className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 text-gray-900 dark:text-white"
-                                                required
-                                                autoFocus
                                             />
+                                            {editTags.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                                    {editTags.map(tag => (
+                                                        <span
+                                                            key={tag}
+                                                            className={`inline-flex items-center gap-1 px-2 py-0.5 ${getTagColor(tag)} text-white text-xs font-medium rounded-full`}
+                                                        >
+                                                            {tag}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveEditTag(tag)}
+                                                                className="hover:bg-white/20 rounded-full p-0.5"
+                                                            >
+                                                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                </svg>
+                                                            </button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">URL</label>
-                                            <input
-                                                type="url"
-                                                value={editUrl}
-                                                onChange={(e) => setEditUrl(e.target.value)}
-                                                className="w-full px-3 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-500 text-gray-900 dark:text-white"
-                                                required
-                                            />
-                                        </div>
-                                        <div className="mt-auto pt-4 flex gap-2">
+                                        <div className="flex gap-2 pt-2">
                                             <button
                                                 type="submit"
                                                 disabled={isSubmitting}
                                                 className="flex-1 px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 transition-smooth disabled:opacity-50"
                                             >
-                                                Save Changes
+                                                Save
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={cancelEdit}
-                                                className="px-3 py-2 border border-gray-300 dark:border-slate-600 text-xs font-bold rounded hover:bg-slate-50 dark:hover:bg-slate-700 dark:text-slate-200 transition-smooth"
+                                                className="px-3 py-2 border border-gray-300 dark:border-slate-600 text-xs font-semibold rounded hover:bg-slate-50 dark:hover:bg-slate-700 dark:text-slate-200 transition-smooth"
                                             >
                                                 Cancel
                                             </button>
@@ -535,7 +683,7 @@ export default function BookmarkList({
                                                     <button
                                                         onClick={() => handleEdit(bookmark)}
                                                         disabled={bookmark.id.startsWith('temp-')}
-                                                        className="p-1.5 text-foreground/10 hover:text-slate-600 hover:bg-slate-50 rounded-md transition-smooth disabled:opacity-30 disabled:hover:bg-transparent"
+                                                        className="p-1.5 text-foreground/10 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-smooth disabled:opacity-30 disabled:hover:bg-transparent"
                                                         title={bookmark.id.startsWith('temp-') ? "Wait for sync" : "Edit"}
                                                     >
                                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -544,7 +692,7 @@ export default function BookmarkList({
                                                     </button>
                                                     <button
                                                         onClick={() => handleDelete(bookmark.id)}
-                                                        className="p-1.5 text-foreground/10 hover:text-red-500 hover:bg-red-50 rounded-md transition-smooth"
+                                                        className="p-1.5 text-foreground/10 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-smooth"
                                                         title="Remove"
                                                     >
                                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -557,23 +705,44 @@ export default function BookmarkList({
                                             <h3 className="text-sm font-semibold text-gray-900 dark:text-white leading-snug line-clamp-2 min-h-[2.5rem] group-hover:text-slate-600 transition-smooth">
                                                 {bookmark.title}
                                             </h3>
+
+                                            {bookmark.description && (
+                                                <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 mt-2">
+                                                    {bookmark.description}
+                                                </p>
+                                            )}
+
+                                            {bookmark.tags && bookmark.tags.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                                    {bookmark.tags.map((tag) => (
+                                                        <span
+                                                            key={tag}
+                                                            className={`inline-flex items-center px-2 py-0.5 ${getTagColor(tag)} text-white text-xs font-medium rounded-full`}
+                                                        >
+                                                            {tag}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between">
                                             <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {new Date(bookmark.created_at).toLocaleDateString('en-US', {
-                                                    month: 'short', day: 'numeric',
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                    year: new Date(bookmark.created_at).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
                                                 })}
                                             </div>
                                             <a
                                                 href={bookmark.url}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="text-[10px] font-bold text-slate-800 hover:text-slate-950 uppercase tracking-widest flex items-center gap-1 group/link"
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold rounded-md hover:bg-slate-200 dark:hover:bg-slate-600 transition-smooth uppercase tracking-wider"
                                             >
-                                                Open
-                                                <svg className="w-3 h-3 transition-smooth group-hover/link:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                                <span>Open</span>
+                                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                                 </svg>
                                             </a>
                                         </div>
@@ -584,6 +753,6 @@ export default function BookmarkList({
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     )
 }
