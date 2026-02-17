@@ -248,24 +248,15 @@ export default function BookmarkList({
     }
 
     return (
-        <div className="max-w-7xl mx-auto space-y-10">
-            {/* Real-time Status Banner - Compact */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-full text-[9px] font-bold tracking-widest uppercase text-foreground/40 shadow-sm animate-in fade-in slide-in-from-left-2">
-                <div className="relative">
-                    <div className="w-1 h-1 bg-green-500 rounded-full" />
-                    <div className="absolute inset-0 w-1 h-1 bg-green-500 rounded-full animate-ping opacity-75" />
-                </div>
-                <span>Sync Active</span>
-            </div>
-
+        <div className="max-w-7xl mx-auto space-y-16">
             {/* Add Bookmark Section - Compact & Efficient */}
-            <div className="bg-card border border-border rounded-premium p-6 shadow-sm">
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div className="bg-card border border-border rounded-premium p-8 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 md:gap-12">
                     <div className="space-y-1">
                         <h2 className="text-xl font-semibold tracking-tight text-foreground">
-                            Add <span className="text-slate-500">Bookmark</span>
+                            Add <span className="text-slate-600">Bookmark</span>
                         </h2>
-                        <p className="text-xs text-foreground/40">Quickly save a new reference to your library.</p>
+                        <p className="text-xs text-foreground/60">Quickly save a new reference to your library.</p>
                     </div>
                     
                     <form onSubmit={handleSubmit} className="flex-1 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
@@ -319,13 +310,13 @@ export default function BookmarkList({
             </div>
 
             {/* Bookmarks List Section */}
-            <div className="space-y-6">
+            <div className="space-y-10">
                 <div className="flex items-end justify-between border-b border-border pb-4">
                     <div className="space-y-0.5">
                         <h2 className="text-2xl font-semibold tracking-tight text-foreground">
                             Library
                         </h2>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-foreground/30 uppercase tracking-widest">
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
                             <span>{bookmarks.length} Curated Items</span>
                             {(() => {
                                 if (bookmarks.length === 0) return null
@@ -337,8 +328,8 @@ export default function BookmarkList({
                                 if (hours < 24) {
                                     return (
                                         <>
-                                            <span className="w-1 h-1 bg-border rounded-full" />
-                                            <span>{hours < 1 ? 'Just Updated' : 'Updated Today'}</span>
+                                            <span className="w-1 h-1 bg-slate-200 rounded-full" />
+                                            <span className="text-slate-500">{hours < 1 ? 'Just Updated' : 'Updated Today'}</span>
                                         </>
                                     )
                                 }
@@ -355,13 +346,13 @@ export default function BookmarkList({
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                             </svg>
                         </div>
-                        <h3 className="text-base font-medium text-foreground/60">No items found</h3>
-                        <p className="text-foreground/30 max-w-xs mx-auto text-xs leading-relaxed">
+                        <h3 className="text-base font-medium text-foreground/80">No items found</h3>
+                        <p className="text-foreground/50 max-w-xs mx-auto text-xs leading-relaxed">
                             Your library is waiting. Add your first digital discovery above.
                         </p>
                     </div>
                 ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                         {bookmarks.map((bookmark) => (
                             <div
                                 key={bookmark.id}
@@ -413,7 +404,7 @@ export default function BookmarkList({
                                         <div className="flex-1 space-y-3">
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
-                                                    <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase truncate max-w-[120px]">
+                                                    <div className="text-[9px] font-bold text-slate-500 tracking-widest uppercase truncate max-w-[120px]">
                                                         {new URL(bookmark.url).hostname}
                                                     </div>
                                                     {bookmark.id.startsWith('temp-') && (
@@ -452,7 +443,7 @@ export default function BookmarkList({
                                         </div>
 
                                         <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
-                                            <div className="text-[9px] font-bold text-foreground/20 uppercase tracking-widest">
+                                            <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {new Date(bookmark.created_at).toLocaleDateString('en-US', {
                                                     month: 'short', day: 'numeric',
                                                 })}
@@ -461,7 +452,7 @@ export default function BookmarkList({
                                                 href={bookmark.url}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="text-[10px] font-bold text-slate-600 hover:text-slate-900 uppercase tracking-widest flex items-center gap-1 group/link"
+                                                className="text-[10px] font-bold text-slate-800 hover:text-slate-950 uppercase tracking-widest flex items-center gap-1 group/link"
                                             >
                                                 Open
                                                 <svg className="w-3 h-3 transition-smooth group-hover/link:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
