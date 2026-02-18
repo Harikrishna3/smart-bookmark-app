@@ -18,7 +18,7 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-accent selection:text-white px-6 overflow-x-hidden">
-      <div className="max-w-6xl mx-auto py-24 sm:py-32">
+      <div className="max-w-6xl mx-auto py-24 sm:py-12">
         {/* Navigation / Header Area */}
         <div className="flex items-center justify-between mb-24 animate-in fade-in slide-in-from-top-4 duration-1000">
           <div className="flex items-center gap-3">

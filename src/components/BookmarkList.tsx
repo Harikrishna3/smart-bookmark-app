@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import type { Bookmark } from '@/types/database.types'
-import { RealtimeChannel } from '@supabase/supabase-js'
 
 interface BookmarkListProps {
     initialBookmarks: Bookmark[]
@@ -35,81 +35,70 @@ export default function BookmarkList({
     const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'domain'>('date-desc')
     const [selectedTagFilter, setSelectedTagFilter] = useState<string | null>(null)
 
-    const supabase = createClient()
+    const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'connected' | 'error'>('connecting')
 
-    // Real-time subscription
+    // Stable Supabase client — ref ensures no re-initialization across renders
+    const supabaseRef = useRef(createClient())
+    const supabase = supabaseRef.current
+
+    // Fetch all bookmarks from DB (used by Realtime sync)
+    const fetchBookmarks = async () => {
+        const { data, error } = await supabaseRef.current
+            .from('bookmarks')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+        if (!error && data) {
+            setBookmarks(data as Bookmark[])
+        }
+    }
+
+    // Real-time subscription — re-fetch on any change for bulletproof cross-tab sync.
+    // Parsing payload.new/old has many failure modes (REPLICA IDENTITY, RLS, empty payloads).
+    // A full re-fetch is simpler and always correct. Optimistic updates handle same-tab UX.
     useEffect(() => {
-        let channel: RealtimeChannel
+        const supabase = supabaseRef.current
+        // Unique name per mount — avoids stale channel collision on singleton client
+        // when React Strict Mode double-mounts the component.
+        const channelName = `bookmarks-${userId}-${Math.random().toString(36).slice(2, 8)}`
+        console.log('[Realtime] Setting up subscription on channel:', channelName)
 
-        const setupRealtimeSubscription = async () => {
-            console.log('Setting up real-time subscription for user:', userId)
-
-            channel = supabase
-                .channel('db-changes')
-                .on(
-                    'postgres_changes',
-                    {
-                        event: '*',
-                        schema: 'public',
-                        table: 'bookmarks',
-                    },
-                    (payload) => {
-                        console.log('Real-time event received:', payload.eventType, payload)
-
-                        if (payload.eventType === 'INSERT') {
-                            const newBookmark = payload.new as Bookmark
-                            setBookmarks((current) => {
-                                // 1. Check for exact ID match (real ID already in list)
-                                if (current.some(b => b.id === newBookmark.id)) {
-                                    console.log('Duplicate bookmark ignored:', newBookmark.id)
-                                    return current
-                                }
-
-                                // 2. Check for optimistic match (temp ID with same content)
-                                const optimisticIndex = current.findIndex(b =>
-                                    b.id.startsWith('temp-') &&
-                                    b.url === newBookmark.url &&
-                                    b.title === newBookmark.title
-                                )
-
-                                if (optimisticIndex !== -1) {
-                                    console.log('Optimistic match found, replacing temp ID with real ID')
-                                    const updated = [...current]
-                                    updated[optimisticIndex] = newBookmark
-                                    return updated
-                                }
-
-                                console.log('Adding new bookmark to list:', newBookmark.title)
-                                return [newBookmark, ...current]
-                            })
-                        } else if (payload.eventType === 'DELETE') {
-                            const deletedId = payload.old.id
-                            console.log('Removing bookmark from list:', deletedId)
-                            setBookmarks((current) =>
-                                current.filter((bookmark) => bookmark.id !== deletedId)
-                            )
-                        } else if (payload.eventType === 'UPDATE') {
-                            const updatedBookmark = payload.new as Bookmark
-                            console.log('Updating bookmark in list:', updatedBookmark.title)
-                            setBookmarks((current) =>
-                                current.map((b) => b.id === updatedBookmark.id ? updatedBookmark : b)
-                            )
+        const channel = supabase
+            .channel(channelName)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'bookmarks' },
+                (payload: RealtimePostgresChangesPayload<Bookmark>) => {
+                    console.log('[Realtime] Event received:', payload.eventType)
+                    // For DELETE we can do it instantly without a fetch (payload.old.id is always present)
+                    if (payload.eventType === 'DELETE') {
+                        const deletedId = (payload.old as Partial<Bookmark>).id
+                        if (deletedId) {
+                            setBookmarks(current => current.filter(b => b.id !== deletedId))
+                            return
                         }
                     }
-                ).subscribe((status) => {
-                    console.log('Subscription status:', status)
-                })
-        }
-
-        setupRealtimeSubscription()
+                    // For INSERT/UPDATE — re-fetch to get the full accurate state
+                    fetchBookmarks()
+                }
+            )
+            .subscribe((status: string, err?: Error) => {
+                console.log('[Realtime] Subscription status:', status, err ?? '')
+                if (status === 'SUBSCRIBED') {
+                    setRealtimeStatus('connected')
+                } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    setRealtimeStatus('error')
+                    console.error('[Realtime] Error — check Supabase Realtime is enabled for the bookmarks table')
+                }
+            })
 
         return () => {
-            if (channel) {
-                console.log('Cleaning up real-time subscription')
-                supabase.removeChannel(channel)
-            }
+            console.log('[Realtime] Removing channel:', channelName)
+            supabase.removeChannel(channel)
         }
-    }, [supabase, userId])
+    // Only re-run if userId changes — supabase client is stable via ref
+
+    }, [userId])
 
     // Tag color generator - consistent colors for same tag names
     const getTagColor = (tag: string) => {
@@ -177,35 +166,39 @@ export default function BookmarkList({
             return
         }
 
+        const trimmedTitle = title.trim()
+        const trimmedDescription = description.trim()
+        const savedTitle = title
+        const savedUrl = url
         const tempId = `temp-${Date.now()}`
         const optimisticBookmark: Bookmark = {
             id: tempId,
-            title: title.trim(),
+            title: trimmedTitle,
             url: processedUrl,
-            description: description.trim() || undefined,
+            description: trimmedDescription || undefined,
+            tags: selectedTags.length > 0 ? selectedTags : undefined,
             user_id: userId,
             created_at: new Date().toISOString()
         }
 
         // 1. True Optimistic Update - Add to UI immediately
         setBookmarks(current => [optimisticBookmark, ...current])
-        const savedTitle = title
-        const savedUrl = processedUrl
-        const savedDescription = description
         setTitle('')
         setUrl('')
         setDescription('')
+        setSelectedTags([])
 
         try {
-            new URL(savedUrl)
+            new URL(processedUrl)
             console.log('Inserting bookmark for user:', userId)
 
             const { data, error: insertError } = await supabase
                 .from('bookmarks')
                 .insert([{
-                    title: savedTitle,
-                    url: savedUrl,
-                    description: savedDescription.trim() || null,
+                    title: trimmedTitle,
+                    url: processedUrl,
+                    description: trimmedDescription || null,
+                    tags: selectedTags.length > 0 ? selectedTags : null,
                     user_id: userId
                 }])
                 .select()
@@ -213,15 +206,15 @@ export default function BookmarkList({
 
             if (insertError) throw insertError
 
-            if (data && data.length > 0) {
-                const realBookmark = data[0] as Bookmark
+            if (data) {
+                const realBookmark = data as Bookmark
                 // Replace temp bookmark with the real one from DB
                 setBookmarks(current =>
                     current.map(b => b.id === tempId ? realBookmark : b)
                 )
                 console.log('Insert successful, replaced temp bookmark.')
             } else {
-                console.warn('Insert successful but no data returned (RLS check). Keeping temp bookmark.')
+                console.warn('Insert successful but no data returned. Keeping temp bookmark.')
             }
         } catch (err) {
             console.error('Error adding bookmark, rolling back:', err)
@@ -328,13 +321,21 @@ export default function BookmarkList({
             return
         }
 
+        // Save current list for potential rollback
+        const originalBookmarks = [...bookmarks]
+        
+        // Optimistic delete
+        setBookmarks((current) => current.filter((b) => b.id !== id))
+
         const { error } = await supabase.from('bookmarks').delete().eq('id', id)
 
         if (error) {
             console.error('Error deleting bookmark:', error)
             alert('Failed to delete bookmark. Please try again.')
+            // Rollback optimistic delete
+            setBookmarks(originalBookmarks)
         } else {
-            setBookmarks((current) => current.filter((b) => b.id !== id))
+            console.log('Bookmark deleted from database')
         }
     }
 
@@ -390,6 +391,25 @@ export default function BookmarkList({
 
     return (
         <div className="max-w-7xl mx-auto space-y-8">
+            {/* Realtime connection status badge */}
+            <div className="flex justify-end">
+                <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium ${
+                    realtimeStatus === 'connected'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : realtimeStatus === 'error'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                        realtimeStatus === 'connected' ? 'bg-green-500' :
+                        realtimeStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
+                    }`} />
+                    {realtimeStatus === 'connected' ? 'Live sync on' :
+                     realtimeStatus === 'error' ? 'Sync error — check Supabase Realtime' :
+                     'Connecting…'}
+                </span>
+            </div>
+
             {/* Add Bookmark Section - Minimalist */}
             <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-premium p-6 shadow-sm">
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 md:gap-8">
